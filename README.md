@@ -49,6 +49,11 @@ pip install -r requirements.txt
 python app.py
 ```
 
+如需啟用開發模式（含除錯功能）：
+```bash
+FLASK_ENV=development python app.py
+```
+
 2. 開啟瀏覽器，前往：
 ```
 http://localhost:5000
