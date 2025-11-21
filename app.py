@@ -18,6 +18,18 @@ STOCK_FUTURES = [
     {'symbol': '2303', 'name': '聯電期貨', 'underlying': '聯電'},
 ]
 
+# Base prices for mock data generation
+BASE_PRICES = {
+    '2330': 580.0,
+    '2317': 105.0,
+    '2454': 900.0,
+    '2881': 68.0,
+    '2882': 55.0,
+    '2412': 125.0,
+    '2308': 320.0,
+    '2303': 48.0,
+}
+
 def generate_price_data(base_price):
     """Generate mock real-time price data"""
     change = random.uniform(-5, 5)
@@ -40,20 +52,9 @@ def index():
 @app.route('/api/futures')
 def get_futures():
     """Get all stock futures with current data"""
-    base_prices = {
-        '2330': 580.0,
-        '2317': 105.0,
-        '2454': 900.0,
-        '2881': 68.0,
-        '2882': 55.0,
-        '2412': 125.0,
-        '2308': 320.0,
-        '2303': 48.0,
-    }
-    
     futures_data = []
     for future in STOCK_FUTURES:
-        base_price = base_prices.get(future['symbol'], 100.0)
+        base_price = BASE_PRICES.get(future['symbol'], 100.0)
         price_data = generate_price_data(base_price)
         futures_data.append({
             **future,
@@ -70,18 +71,7 @@ def get_future_detail(symbol):
     if not future:
         return jsonify({'error': 'Future not found'}), 404
     
-    base_prices = {
-        '2330': 580.0,
-        '2317': 105.0,
-        '2454': 900.0,
-        '2881': 68.0,
-        '2882': 55.0,
-        '2412': 125.0,
-        '2308': 320.0,
-        '2303': 48.0,
-    }
-    
-    base_price = base_prices.get(symbol, 100.0)
+    base_price = BASE_PRICES.get(symbol, 100.0)
     price_data = generate_price_data(base_price)
     
     return jsonify({
