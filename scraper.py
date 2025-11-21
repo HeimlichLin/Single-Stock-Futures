@@ -5,8 +5,35 @@ import asyncio
 import aiohttp
 from config import MONTH_CODES, NAME_MAPPING, CONCURRENCY_LIMIT
 
+import math
+
 # 全域變數
 ALL_STOCKS = []
+
+def get_tick_size(price):
+    """取得價格對應的跳動單位 (Tick Size)"""
+    if price < 10: return 0.01
+    elif price < 50: return 0.05
+    elif price < 100: return 0.1
+    elif price < 500: return 0.5
+    elif price < 1000: return 1
+    else: return 5
+
+def calculate_limits(prev_close):
+    """計算漲停價與跌停價"""
+    # 漲停: 昨收 * 1.10，無條件捨去至 Tick
+    raw_up = prev_close * 1.10
+    tick_up = get_tick_size(raw_up)
+    # 處理邊界: 若 raw_up 剛好在轉折點 (例如 100)，tick 取決於它所在的區間
+    # 這裡簡化邏輯: 直接用 raw_up 判斷 tick
+    limit_up = math.floor(raw_up / tick_up) * tick_up
+    
+    # 跌停: 昨收 * 0.90，無條件進位至 Tick
+    raw_down = prev_close * 0.90
+    tick_down = get_tick_size(raw_down)
+    limit_down = math.ceil(raw_down / tick_down) * tick_down
+    
+    return limit_up, limit_down
 
 def fetch_ssf_list():
     """
@@ -118,10 +145,54 @@ async def fetch_yahoo_html(session, task):
                 if m2: price = float(m2.group(1).replace(',', ''))
             
             if price is not None:
+                # 1. 抓取昨收價 (Previous Close) 用於計算漲跌幅
+                prev_close = None
+                # 結構: 昨收</span><span ...>1,455</span>
+                m_prev = re.search(r'昨收</span>.*?<span[^>]*>([0-9,.]+)<', html)
+                if m_prev:
+                    try:
+                        prev_close = float(m_prev.group(1).replace(',', ''))
+                    except:
+                        pass
+                
+                # 計算漲跌幅: (現價 - 昨收) / 昨收 * 100
+                change_percent = 0.0
+                is_limit_up = False
+                is_limit_down = False
+
+                if prev_close and prev_close > 0:
+                    change_percent = round(((price - prev_close) / prev_close) * 100, 2)
+                    
+                    # 計算漲跌停
+                    limit_up, limit_down = calculate_limits(prev_close)
+                    
+                    # 比較價格 (使用 epsilon 避免浮點數誤差)
+                    if abs(price - limit_up) < 0.005:
+                        is_limit_up = True
+                    elif abs(price - limit_down) < 0.005:
+                        is_limit_down = True
+
+                # 2. 抓取開盤價 (Open)
+                open_price = 0.0
+                # 尋找 "開盤" 關鍵字後的數字
+                # 結構通常是: <span ...>開盤</span><span ...>1,395</span>
+                m_open = re.search(r'>開盤</span>.*?<span[^>]*>([0-9,.]+)<', html)
+                
+                if m_open:
+                    try:
+                        open_price = float(m_open.group(1).replace(',', ''))
+                    except:
+                        pass
+
                 return {
                     "Symbol": symbol,
                     "Name": task['name'],
                     "Price": price,
+                    "Open": open_price,
+                    "PrevClose": prev_close if prev_close else 0, # 新增昨收欄位
+                    "ChangePercent": change_percent,
+                    "IsLimitUp": is_limit_up,
+                    "IsLimitDown": is_limit_down,
                     "Url": url,
                     # 以下是用來排序的關鍵欄位
                     "StockCode": task['stock_code'],   # 排序 1: 2330

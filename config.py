@@ -1,5 +1,5 @@
 # === 設定區 ===
-CONCURRENCY_LIMIT = 40 # 並發數
+CONCURRENCY_LIMIT = 5 # 並發數 (降低以避免被擋)
 
 # Yahoo 月份代碼
 MONTH_CODES = {

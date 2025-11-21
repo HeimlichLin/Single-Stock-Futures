@@ -50,10 +50,13 @@
                 <thead>
                     <tr>
                         <th width="10%">股票代號</th>
-                        <th width="25%">名稱</th>
+                        <th width="20%">名稱</th>
                         <th width="15%">期貨代碼</th>
-                        <th width="15%">價格</th>
-                        <th width="15%">連結</th>
+                        <th width="10%">價格</th>
+                        <th width="10%">開盤</th>
+                        <th width="10%">昨收</th>
+                        <th width="10%">漲跌幅</th>
+                        <th width="10%">連結</th>
                     </tr>
                 </thead>
                 <tbody id="list"></tbody>
@@ -96,11 +99,41 @@
                 tr.dataset.symbol = d.FuturesCode;
                 tr.dataset.month = d.MonthKey;
                 
+                // 顏色與樣式邏輯
+                let val = d.ChangePercent;
+                let text = val + '%';
+                let style = 'font-weight:bold;';
+                
+                if (val > 0) {
+                    text = '+' + val + '%'; // 漲: 加正號
+                    if (d.IsLimitUp) {
+                        // 漲停: 紅底白字
+                        style += 'color:white; background-color:#dc3545; padding:4px 8px; border-radius:4px;';
+                    } else {
+                        // 漲: 紅字
+                        style += 'color:#dc3545;';
+                    }
+                } else if (val < 0) {
+                    // 跌: 負號已在數字中
+                    if (d.IsLimitDown) {
+                        // 跌停: 綠底白字
+                        style += 'color:white; background-color:#198754; padding:4px 8px; border-radius:4px;';
+                    } else {
+                        // 跌: 綠字
+                        style += 'color:#198754;';
+                    }
+                } else {
+                    style += 'color:#333;';
+                }
+
                 tr.innerHTML = `
                     <td><span class="stock-code">${d.StockCode}</span></td>
                     <td style="text-align:left; padding-left:30px;">${d.Name}</td>
                     <td><span class="symbol-code">${d.Symbol}</span></td>
                     <td class="price">${d.Price}</td>
+                    <td>${d.Open}</td>
+                    <td>${d.PrevClose}</td>
+                    <td><span style="${style}">${text}</span></td>
                     <td><a href="${d.Url}" target="_blank">Yahoo</a></td>
                 `;
                 
