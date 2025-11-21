@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台灣市場個股期貨即時看板</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans TC', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .update-time {
+            color: #888;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .stock-info {
+            flex: 1;
+        }
+
+        .symbol {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .name {
+            color: #666;
+            font-size: 0.95em;
+        }
+
+        .price {
+            font-size: 2.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .price.up {
+            color: #f44336;
+        }
+
+        .price.down {
+            color: #4caf50;
+        }
+
+        .price.neutral {
+            color: #666;
+        }
+
+        .change {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.1em;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .change.up {
+            color: #f44336;
+        }
+
+        .change.down {
+            color: #4caf50;
+        }
+
+        .arrow {
+            font-size: 1.2em;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+
+        .stat {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: #888;
+            margin-bottom: 3px;
+        }
+
+        .stat-value {
+            font-size: 1em;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: white;
+            font-size: 1.2em;
+        }
+
+        .error {
+            background: #f44336;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            .price {
+                font-size: 1.8em;
+            }
+        }
+
+        .refresh-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #4caf50;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.3;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>台灣市場個股期貨即時看板</h1>
+            <p class="subtitle">Taiwan Stock Futures Real-time Dashboard</p>
+            <p class="update-time">
+                最後更新: <span id="updateTime">載入中...</span>
+                <span class="refresh-indicator"></span>
+            </p>
+        </header>
+
+        <div id="dashboard" class="dashboard">
+            <div class="loading">載入期貨資料中...</div>
+        </div>
+    </div>
+
+    <script>
+        let updateInterval;
+
+        function formatNumber(num) {
+            return new Intl.NumberFormat('zh-TW').format(num);
+        }
+
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleString('zh-TW', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function createCard(future) {
+            const isUp = future.change > 0;
+            const isDown = future.change < 0;
+            const priceClass = isUp ? 'up' : isDown ? 'down' : 'neutral';
+            const arrow = isUp ? '▲' : isDown ? '▼' : '─';
+
+            return `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="stock-info">
+                            <div class="symbol">${future.symbol}</div>
+                            <div class="name">${future.name}</div>
+                        </div>
+                    </div>
+                    <div class="price ${priceClass}">
+                        ${formatNumber(future.price)}
+                    </div>
+                    <div class="change ${priceClass}">
+                        <span class="arrow">${arrow}</span>
+                        <span>${isUp ? '+' : ''}${formatNumber(future.change)}</span>
+                        <span>(${isUp ? '+' : ''}${future.change_percent}%)</span>
+                    </div>
+                    <div class="stats">
+                        <div class="stat">
+                            <span class="stat-label">開盤</span>
+                            <span class="stat-value">${formatNumber(future.open)}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">成交量</span>
+                            <span class="stat-value">${formatNumber(future.volume)}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">最高</span>
+                            <span class="stat-value">${formatNumber(future.high)}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">最低</span>
+                            <span class="stat-value">${formatNumber(future.low)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function fetchFutures() {
+            try {
+                const response = await fetch('/api/futures');
+                if (!response.ok) {
+                    throw new Error('無法取得期貨資料');
+                }
+                const futures = await response.json();
+                
+                const dashboard = document.getElementById('dashboard');
+                dashboard.innerHTML = futures.map(createCard).join('');
+                
+                const updateTime = document.getElementById('updateTime');
+                updateTime.textContent = formatTime(new Date());
+            } catch (error) {
+                console.error('Error fetching futures:', error);
+                const dashboard = document.getElementById('dashboard');
+                dashboard.innerHTML = '<div class="error">載入資料時發生錯誤，請稍後再試</div>';
+            }
+        }
+
+        // Initial load
+        fetchFutures();
+
+        // Auto refresh every 5 seconds
+        updateInterval = setInterval(fetchFutures, 5000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+        });
+    </script>
+</body>
+</html>
