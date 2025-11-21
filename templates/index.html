@@ -9,9 +9,17 @@
         
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
         h2 { margin: 0; color: #333; font-size: 1.5em; }
+        .controls { display: flex; gap: 10px; align-items: center; }
         .controls input { padding: 8px; width: 200px; border: 1px solid #ccc; border-radius: 4px; }
         .controls button { padding: 8px 20px; background: #6f42c1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .controls button:disabled { background: #ccc; }
+        .btn-secondary { background: #6c757d !important; }
+        
+        .exclusion-panel { 
+            margin-bottom: 10px; padding: 10px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px;
+            display: none; /* 預設隱藏 */
+        }
+        .exclusion-panel.show { display: block; }
         
         .status-bar { background: #e9ecef; padding: 8px 15px; border-radius: 4px; color: #555; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9em; }
         
@@ -35,9 +43,21 @@
         <div class="header">
             <h2>全市場股期 (排序: 股號 > 種類 > 月份)</h2>
             <div class="controls">
+                <button class="btn-secondary" onclick="toggleExclusion()">⚙️ 排除設定</button>
                 <input type="text" id="search" placeholder="搜尋名稱或代號..." onkeyup="filter()">
                 <button id="btn" onclick="start()">⚡ 開始掃描</button>
             </div>
+        </div>
+        
+        <div id="exclusionPanel" class="exclusion-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; font-size: 1em; color: #856404;">🚫 排除清單 (輸入代號跳過爬取)</h3>
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="excludeInput" placeholder="股票代號 (Ex: 2330)" style="padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
+                    <button onclick="addExcluded()" style="padding: 4px 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">加入</button>
+                </div>
+            </div>
+            <div id="excludedList" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px;"></div>
         </div>
         
         <div class="status-bar">
@@ -68,6 +88,68 @@
         let es = null;
         let total = 0;
 
+        function toggleExclusion() {
+            const panel = document.getElementById('exclusionPanel');
+            panel.classList.toggle('show');
+        }
+
+        // 初始化載入排除清單
+        window.onload = function() {
+            fetchExcluded();
+        }
+
+        async function fetchExcluded() {
+            try {
+                const res = await fetch('/api/excluded');
+                const list = await res.json();
+                renderExcluded(list);
+            } catch(e) { console.error(e); }
+        }
+
+        async function addExcluded() {
+            const input = document.getElementById('excludeInput');
+            const code = input.value.trim();
+            if(!code) return;
+            
+            try {
+                const res = await fetch('/api/excluded', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({code: code})
+                });
+                const list = await res.json();
+                renderExcluded(list);
+                input.value = '';
+            } catch(e) { alert('加入失敗'); }
+        }
+
+        async function removeExcluded(code) {
+            if(!confirm(`確定要移除排除項目 ${code} 嗎?`)) return;
+            try {
+                const res = await fetch('/api/excluded', {
+                    method: 'DELETE',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({code: code})
+                });
+                const list = await res.json();
+                renderExcluded(list);
+            } catch(e) { alert('移除失敗'); }
+        }
+
+        function renderExcluded(list) {
+            const container = document.getElementById('excludedList');
+            if(list.length === 0) {
+                container.innerHTML = '<span style="color: #999; font-size: 0.9em;">目前無排除項目</span>';
+                return;
+            }
+            container.innerHTML = list.map(code => `
+                <span style="background: white; border: 1px solid #dee2e6; padding: 2px 8px; border-radius: 12px; font-size: 0.9em; display: flex; align-items: center; gap: 5px; color: #495057;">
+                    ${code}
+                    <span onclick="removeExcluded('${code}')" style="cursor: pointer; color: #dc3545; font-weight: bold; font-size: 1.1em;">&times;</span>
+                </span>
+            `).join('');
+        }
+
         function start() {
             const btn = document.getElementById('btn');
             const msg = document.getElementById('msg');
@@ -92,7 +174,8 @@
                 // 建立 DOM
                 const tr = document.createElement('tr');
                 tr.className = 'item';
-                tr.dataset.txt = (d.Name + d.Symbol + d.StockCode).toLowerCase();
+                // 建立搜尋索引 (包含名稱、Yahoo代號、股票代號、期貨代號、月份Key)
+                tr.dataset.txt = [d.Name, d.Symbol, d.StockCode, d.FuturesCode, d.MonthKey].join(' ').toLowerCase();
                 
                 // 設定排序用的屬性
                 tr.dataset.stock = d.StockCode;
@@ -138,7 +221,7 @@
                 `;
                 
                 // 搜尋過濾
-                const search = document.getElementById('search').value.toLowerCase();
+                const search = document.getElementById('search').value.trim().toLowerCase();
                 if(search && !tr.dataset.txt.includes(search)) {
                     tr.style.display = 'none';
                 }
@@ -196,9 +279,13 @@
         }
         
         function filter() {
-            const v = document.getElementById('search').value.toLowerCase();
+            const v = document.getElementById('search').value.trim().toLowerCase();
             document.querySelectorAll('.item').forEach(r => {
-                r.style.display = r.dataset.txt.includes(v) ? '' : 'none';
+                if (!v) {
+                    r.style.display = '';
+                } else {
+                    r.style.display = r.dataset.txt.includes(v) ? '' : 'none';
+                }
             });
         }
     </script>
