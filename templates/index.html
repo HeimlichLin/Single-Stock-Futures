@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>全市場股期 (智能排序版)</title>
+    <style>
+        body { font-family: 'Microsoft JhengHei', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 8px; padding: 20px; height: 90vh; display: flex; flex-direction: column; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        h2 { margin: 0; color: #333; font-size: 1.5em; }
+        .controls input { padding: 8px; width: 200px; border: 1px solid #ccc; border-radius: 4px; }
+        .controls button { padding: 8px 20px; background: #6f42c1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .controls button:disabled { background: #ccc; }
+        
+        .status-bar { background: #e9ecef; padding: 8px 15px; border-radius: 4px; color: #555; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9em; }
+        
+        .table-wrapper { flex: 1; overflow-y: auto; border: 1px solid #eee; position: relative; }
+        table { width: 100%; border-collapse: collapse; }
+        thead { position: sticky; top: 0; background: #212529; color: white; z-index: 10; }
+        th, td { padding: 10px; text-align: center; border-bottom: 1px solid #eee; }
+        
+        .stock-code { font-family: monospace; color: #0056b3; font-weight: bold; background: #f0f8ff; border-radius: 4px; padding: 2px 6px; }
+        .symbol-code { font-family: monospace; color: #666; }
+        .price { font-weight: bold; color: #d63384; font-size: 1.1em; }
+        
+        a { text-decoration: none; color: #0d6efd; border: 1px solid #dee2e6; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+        a:hover { background: #0d6efd; color: white; }
+        
+        tbody tr:hover { background-color: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>全市場股期 (排序: 股號 > 種類 > 月份)</h2>
+            <div class="controls">
+                <input type="text" id="search" placeholder="搜尋名稱或代號..." onkeyup="filter()">
+                <button id="btn" onclick="start()">⚡ 開始掃描</button>
+            </div>
+        </div>
+        
+        <div class="status-bar">
+            <span id="msg">系統就緒</span>
+            <span id="count">已載入: 0 筆</span>
+        </div>
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th width="10%">股票代號</th>
+                        <th width="25%">名稱</th>
+                        <th width="15%">期貨代碼</th>
+                        <th width="15%">價格</th>
+                        <th width="15%">連結</th>
+                    </tr>
+                </thead>
+                <tbody id="list"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let es = null;
+        let total = 0;
+
+        function start() {
+            const btn = document.getElementById('btn');
+            const msg = document.getElementById('msg');
+            const count = document.getElementById('count');
+            const list = document.getElementById('list');
+            
+            if(es) es.close();
+            list.innerHTML = '';
+            total = 0;
+            count.innerText = '已載入: 0 筆';
+            msg.innerText = '正在連線並發爬蟲...';
+            btn.disabled = true;
+            
+            es = new EventSource('/stream_scrape');
+            
+            es.onmessage = function(e) {
+                const d = JSON.parse(e.data);
+                total++;
+                count.innerText = `已載入: ${total} 筆`;
+                if(total===1) msg.innerText = '資料傳輸中 (自動歸位排序)...';
+                
+                // 建立 DOM
+                const tr = document.createElement('tr');
+                tr.className = 'item';
+                tr.dataset.txt = (d.Name + d.Symbol + d.StockCode).toLowerCase();
+                
+                // 設定排序用的屬性
+                tr.dataset.stock = d.StockCode;
+                tr.dataset.symbol = d.FuturesCode;
+                tr.dataset.month = d.MonthKey;
+                
+                tr.innerHTML = `
+                    <td><span class="stock-code">${d.StockCode}</span></td>
+                    <td style="text-align:left; padding-left:30px;">${d.Name}</td>
+                    <td><span class="symbol-code">${d.Symbol}</span></td>
+                    <td class="price">${d.Price}</td>
+                    <td><a href="${d.Url}" target="_blank">Yahoo</a></td>
+                `;
+                
+                // 搜尋過濾
+                const search = document.getElementById('search').value.toLowerCase();
+                if(search && !tr.dataset.txt.includes(search)) {
+                    tr.style.display = 'none';
+                }
+                
+                // ★★★ 關鍵: 插入排序 (Insertion Sort) ★★★
+                insertSorted(list, tr);
+            };
+            
+            es.addEventListener('close', () => {
+                msg.innerText = '掃描完成。';
+                btn.disabled = false;
+                es.close();
+            });
+            
+            es.onerror = () => {
+                btn.disabled = false;
+                es.close();
+            };
+        }
+        
+        function insertSorted(tbody, newRow) {
+            const rows = tbody.children;
+            if (rows.length === 0) {
+                tbody.appendChild(newRow);
+                return;
+            }
+
+            const nStock = parseInt(newRow.dataset.stock) || 99999;
+            const nSym = newRow.dataset.symbol;
+            const nMonth = parseInt(newRow.dataset.month);
+
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const cStock = parseInt(row.dataset.stock) || 99999;
+                
+                // 1. 先比股票代號 (2330 < 2603)
+                if (nStock < cStock) {
+                    tbody.insertBefore(newRow, row); return;
+                } else if (nStock > cStock) continue;
+                
+                // 2. 代號相同，比期貨種類 (CDF < QFF, 所以大台在前)
+                const cSym = row.dataset.symbol;
+                if (nSym < cSym) {
+                    tbody.insertBefore(newRow, row); return;
+                } else if (nSym > cSym) continue;
+                
+                // 3. 種類相同，比月份 (202512 < 202601)
+                const cMonth = parseInt(row.dataset.month);
+                if (nMonth < cMonth) {
+                    tbody.insertBefore(newRow, row); return;
+                }
+            }
+            // 找不到比它大的，插在最後
+            tbody.appendChild(newRow);
+        }
+        
+        function filter() {
+            const v = document.getElementById('search').value.toLowerCase();
+            document.querySelectorAll('.item').forEach(r => {
+                r.style.display = r.dataset.txt.includes(v) ? '' : 'none';
+            });
+        }
+    </script>
+</body>
+</html>
