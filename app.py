@@ -8,7 +8,11 @@ print("Starting app...", file=sys.stderr)
 
 from core.scraper import run_all_tasks
 
-app = Flask(__name__)
+if getattr(sys, 'frozen', False):
+    template_folder = os.path.join(sys._MEIPASS, 'templates')
+    app = Flask(__name__, template_folder=template_folder)
+else:
+    app = Flask(__name__)
 EXCLUDED_FILE = 'excluded_stocks.json'
 
 def load_excluded_list():
