@@ -3,7 +3,7 @@ import datetime
 import re
 import asyncio
 import aiohttp
-from config import MONTH_CODES, NAME_MAPPING, CONCURRENCY_LIMIT
+from .config import MONTH_CODES, NAME_MAPPING, CONCURRENCY_LIMIT
 
 import math
 
@@ -76,13 +76,14 @@ def fetch_ssf_list():
                 # 2. 自動判斷小型期貨
                 # 條件A: 代碼以 'Q' 開頭 (期交所慣例: Q開頭多為小型)
                 # 條件B: 同一檔股票有多個合約，且排序在後 (經驗法則: 標準型代碼 < 小型代碼)
+                # 修正: 若只有一個合約，即使是 Q 開頭 (如 QOF 長興)，也不應視為小型，除非名稱已有 "小"
                 elif not item['Name'].startswith("小"):
                     is_small = False
                     
-                    if item['Code'].startswith('Q'):
-                        is_small = True
-                    elif len(items) > 1 and i > 0:
-                        is_small = True
+                    # 只有在有多個合約時，才啟用 Q 開頭判斷
+                    if len(items) > 1:
+                        if item['Code'].startswith('Q') or i > 0:
+                            is_small = True
                     
                     if is_small:
                         item['Name'] = f"小{item['Name']}"
@@ -148,10 +149,7 @@ async def fetch_yahoo_html(session, task):
 
                 html = await response.text()
                 
-                # 檢查是否查無資料
-                if "查無" in html or "沒有找到" in html:
-                    return None
-
+                # 嘗試抓取價格
                 price = None
                 m = re.search(r'itemprop="price" content="([0-9.]+)"', html)
                 if m: price = float(m.group(1))
@@ -159,17 +157,33 @@ async def fetch_yahoo_html(session, task):
                     m2 = re.search(r'class="Fz\(32px\)[^>]*>([0-9,.]+)<', html)
                     if m2: price = float(m2.group(1).replace(',', ''))
                 
-                if price is not None:
-                    # 1. 抓取昨收價 (Previous Close) 用於計算漲跌幅
-                    prev_close = None
-                    # 結構: 昨收</span><span ...>1,455</span>
-                    m_prev = re.search(r'昨收</span>.*?<span[^>]*>([0-9,.]+)<', html)
+                # 1. 抓取昨收價 (Previous Close) - 即使沒抓到現價也要抓昨收
+                prev_close = None
+                # 嘗試多種 Regex
+                patterns = [
+                    r'昨收</span>.*?<span[^>]*>([0-9,.]+)<',
+                    r'>昨收<.*?<span[^>]*>([0-9,.]+)<',
+                    r'昨收.*?<span[^>]*>([0-9,.]+)<'
+                ]
+                for p in patterns:
+                    m_prev = re.search(p, html, re.DOTALL)
                     if m_prev:
                         try:
                             prev_close = float(m_prev.group(1).replace(',', ''))
+                            break
                         except:
                             pass
-                    
+
+                # 若沒抓到價格，且沒抓到昨收，才檢查是否查無資料
+                if price is None and prev_close is None:
+                    if "查無" in html or "沒有找到" in html:
+                        return None
+
+                # 若有昨收但無現價，視為尚未成交，使用昨收作為參考價
+                if price is None and prev_close is not None:
+                    price = prev_close
+
+                if price is not None:
                     # 計算漲跌幅: (現價 - 昨收) / 昨收 * 100
                     change_percent = 0.0
                     is_limit_up = False
